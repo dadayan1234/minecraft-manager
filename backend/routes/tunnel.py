@@ -4,6 +4,8 @@ import asyncio
 from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import JSONResponse
 import httpx
+from backend.routes.websocket import tunnel_clients  # ← kita gunakan array global tunnel_clients
+
 
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1390165991081771018/AZmWeABt8m3g7zwKIcGEltW_Z1HlZlsdEw1IIFYxy1xPCQSVDFrss2IQl05aIqWy01Xr"  # ← ganti dengan milikmu
 
@@ -38,17 +40,28 @@ async def start_tunnel(request: Request):
 
     return {"status": "starting"}
 
+async def broadcast_to_tunnel_clients(message: str):
+    for client in tunnel_clients.copy():
+        try:
+            await client.send_text(message)
+        except:
+            tunnel_clients.remove(client)
 
 def read_ngrok_output():
     global ngrok_process, ngrok_output, ngrok_status
     if ngrok_process and ngrok_process.stdout:
         for line in ngrok_process.stdout:
-            ngrok_output.append(line.strip())
-            if "tcp://" in line and not ngrok_status["url"]:
-                start = line.find("tcp://")
-                end = line.find(" ", start)
+            clean_line = line.strip()
+            ngrok_output.append(clean_line)
+
+            # Broadcast ke semua WebSocket tunnel clients
+            asyncio.run(broadcast_to_tunnel_clients(clean_line))
+
+            if "tcp://" in clean_line and not ngrok_status["url"]:
+                start = clean_line.find("tcp://")
+                end = clean_line.find(" ", start)
                 if start != -1:
-                    ngrok_status["url"] = line[start:] if end == -1 else line[start:end]
+                    ngrok_status["url"] = clean_line[start:] if end == -1 else clean_line[start:end]
                     send_discord_webhook(ngrok_status["url"])
                     
 def send_discord_webhook(url):

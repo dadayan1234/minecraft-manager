@@ -5,6 +5,7 @@ from fastapi.routing import APIRouter
 
 router = APIRouter()
 log_clients = []
+tunnel_clients = []  # ← TAMBAHKAN INI
 
 @router.websocket("/ws/log")
 async def websocket_log(websocket: WebSocket):
@@ -12,6 +13,6 @@ async def websocket_log(websocket: WebSocket):
     log_clients.append(websocket)
     try:
         while True:
-            await websocket.receive_text()  # dummy
+            await websocket.receive_text()
     except WebSocketDisconnect:
         log_clients.remove(websocket)
