@@ -29,16 +29,37 @@ async def start_tunnel(request: Request):
     ngrok_output.clear()
     ngrok_status = {"running": True, "url": None}
 
+    # Jalankan ngrok (tanpa baca outputnya langsung)
     ngrok_process = subprocess.Popen(
         ["ngrok", "tcp", port],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
     )
 
-    threading.Thread(target=read_ngrok_output, daemon=True).start()
+    # Tunggu URL muncul dari web API
+    threading.Thread(target=wait_for_ngrok_url_and_broadcast, daemon=True).start()
 
     return {"status": "starting"}
+
+def wait_for_ngrok_url_and_broadcast(timeout=15):
+    global ngrok_status
+    import time
+    for _ in range(timeout):
+        try:
+            r = httpx.get("http://127.0.0.1:4040/api/tunnels")
+            tunnels = r.json().get("tunnels", [])
+            for t in tunnels:
+                if t["proto"] == "tcp":
+                    url = t["public_url"]
+                    ngrok_status["url"] = url
+                    send_discord_webhook(url)
+                    asyncio.run(broadcast_to_tunnel_clients(f"Tunnel ready: {url}"))
+                    return
+        except Exception as e:
+            pass
+        time.sleep(1)
+    asyncio.run(broadcast_to_tunnel_clients("⚠️ Tunnel failed to appear via ngrok API."))
+
 
 async def broadcast_to_tunnel_clients(message: str):
     for client in tunnel_clients.copy():
