@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-# minecraft-manager
-minecraft-manager
-=======
-# 🎮 Minecraft Server Manager (Aternos)
+
+# 🎮 Minecraft Server Manager
 
 Sebuah panel kontrol web modern untuk mengelola server Minecraft **Aternos** Anda dari jarak jauh. Dilengkapi dengan antarmuka yang bersih, manajemen file, dan integrasi canggih seperti Ngrok tunnel dan notifikasi webhook Discord.
 
@@ -50,7 +47,6 @@ Ikuti langkah-langkah berikut untuk menjalankan panel kontrol ini di komputer An
 
 * Python 3.8 atau lebih baru
 * Akun [Ngrok](https://ngrok.com/) (untuk mendapatkan authtoken)
-* Akun [Aternos](https://aternos.org/)
 
 ### 2. Instalasi
 
@@ -70,4 +66,3 @@ pip install -r requirements.txt
 
 📄 Lisensi
 Repositori ini tidak memiliki lisensi spesifik. Anda bebas untuk menggunakan dan memodifikasinya untuk keperluan pribadi. Namun, disarankan untuk menambahkan lisensi sumber terbuka seperti MIT License jika Anda berencana untuk mengembangkannya lebih lanjut.
->>>>>>> master
