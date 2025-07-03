@@ -21,6 +21,37 @@
   </style>
 </head>
 <body class="container mt-5">
+  <!-- Rename Modal -->
+<div class="modal" tabindex="-1" id="renameModal">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark text-white">
+      <div class="modal-header">
+        <h5 class="modal-title">Rename</h5>
+        <button type="button" class="btn-close" onclick="closeRename()" style="filter: invert(1)"></button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="renameInput" class="form-control">
+        <button onclick="confirmRename()" class="btn btn-primary mt-2">Rename</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal" tabindex="-1" id="previewModal">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content bg-dark text-white">
+      <div class="modal-header">
+        <h5 class="modal-title">File Preview</h5>
+        <button type="button" class="btn-close" onclick="closePreview()" style="filter: invert(1)"></button>
+      </div>
+      <div class="modal-body">
+        <pre id="previewContent" style="white-space: pre-wrap;"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
   <h1>Minecraft Server Controller</h1>
 
   <div class="mb-3">
@@ -48,12 +79,14 @@
   <div id="tunnelStatus">Status: 🔴 Not Running</div>
   <pre id="tunnelOutput" style="background:#111; color:#0f0; padding:10px; max-height:300px; overflow:auto;"></pre>
 
-
-
-  <h3>File Manager</h3>
-  <input type="file" id="fileInput">
-  <button onclick="uploadFile()" class="btn btn-secondary">Upload</button>
-  <ul id="fileList" class="mt-3"></ul>
+<h3>File Manager</h3>
+<div id="dropZone" class="p-3 border border-secondary mb-2" style="min-height:100px">
+  <strong>📁 Drag & Drop file ke sini</strong><br>
+  Current Path: <span id="currentPath">/</span>
+</div>
+<input type="file" id="fileInput">
+<button onclick="uploadFile()" class="btn btn-secondary">Upload</button>
+<ul id="fileList" class="mt-3"></ul>
 
   <h3>Upload Plugin (.jar)</h3>
   <input type="file" id="pluginInput">
@@ -249,6 +282,142 @@ function listenTunnelLog() {
   };
 }
 
+let currentPath = "";
+let renameTarget = "";
+let selectedFiles = new Set();
+
+function listFiles(path = "") {
+  currentPath = path;
+  document.getElementById("currentPath").textContent = "/" + path;
+  fetch(`${server}/files?path=${path}`, { headers: headers() })
+    .then(res => res.json())
+    .then(data => {
+      const ul = document.getElementById("fileList");
+      ul.innerHTML = "";
+      selectedFiles.clear();
+      data.files.forEach(file => {
+        const li = document.createElement("li");
+        const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+        li.innerHTML = `
+          <input type="checkbox" onchange="toggleSelect('${fullPath}', this.checked)">
+          ${file.type === "folder" ? "📁" : "📄"}
+          <a href="#" onclick="handleItemClick('${file.name}', '${file.type}')">${file.name}</a>
+          ${file.type === "file" ? `<button onclick="previewFile('${file.name}')">👁️</button>` : ""}
+          <button onclick="showRename('${file.name}')">✏️</button>
+          <button onclick="deleteItem('${file.name}')">🗑️</button>
+        `;
+        ul.appendChild(li);
+      });
+    });
+}
+
+function toggleSelect(path, checked) {
+  if (checked) selectedFiles.add(path);
+  else selectedFiles.delete(path);
+}
+
+function handleItemClick(name, type) {
+  if (type === "folder") {
+    const newPath = currentPath ? `${currentPath}/${name}` : name;
+    listFiles(newPath);
+  }
+}
+
+function deleteItem(name) {
+  const form = new FormData();
+  const path = currentPath ? `${currentPath}/${name}` : name;
+  form.append("path", path);
+  fetch(`${server}/files/delete`, { method: "POST", body: form })
+    .then(() => listFiles(currentPath));
+}
+
+function uploadFile() {
+  const files = document.getElementById("fileInput").files;
+  for (let file of files) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("path", currentPath);
+    fetch(`${server}/files/upload`, { method: "POST", body: formData })
+      .then(() => listFiles(currentPath));
+  }
+}
+
+function previewFile(name) {
+  const path = currentPath ? `${currentPath}/${name}` : name;
+  fetch(`${server}/files?path=${path}`, { headers: headers() })
+    .then(res => res.text())
+    .then(content => {
+      document.getElementById("previewContent").textContent = content;
+      document.getElementById("previewModal").style.display = "block";
+    });
+}
+
+function closePreview() {
+  document.getElementById("previewModal").style.display = "none";
+}
+
+function showRename(name) {
+  renameTarget = name;
+  document.getElementById("renameInput").value = name;
+  document.getElementById("renameModal").style.display = "block";
+}
+
+function confirmRename() {
+  const newName = document.getElementById("renameInput").value;
+  const form = new FormData();
+  const oldPath = currentPath ? `${currentPath}/${renameTarget}` : renameTarget;
+  const newPath = currentPath ? `${currentPath}/${newName}` : newName;
+  form.append("old_path", oldPath);
+  form.append("new_path", newPath);
+  fetch(`${server}/files/rename`, { method: "POST", body: form })
+    .then(() => {
+      document.getElementById("renameModal").style.display = "none";
+      listFiles(currentPath);
+    });
+}
+
+function closeRename() {
+  document.getElementById("renameModal").style.display = "none";
+}
+
+function downloadZip() {
+  const zipPath = currentPath || "";
+  window.open(`${server}/files/zip?path=${zipPath}`, "_blank");
+}
+
+function backupSelected() {
+  if (selectedFiles.size === 0) return alert("Pilih file/folder dulu!");
+  const body = JSON.stringify({ items: Array.from(selectedFiles) });
+  fetch(`${server}/files/backup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body
+  })
+    .then(res => res.blob())
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "backup.zip";
+      a.click();
+    });
+}
+
+const dropZone = document.getElementById("dropZone");
+dropZone.ondragover = e => e.preventDefault();
+dropZone.ondrop = e => {
+  e.preventDefault();
+  const files = e.dataTransfer.files;
+  for (let file of files) {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("path", currentPath);
+    fetch(`${server}/files/upload`, { method: "POST", body: form })
+      .then(() => listFiles(currentPath));
+  }
+};
+
+    listFiles();
 
 
     checkStatus();

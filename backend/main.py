@@ -7,6 +7,9 @@ from backend.routes import file, server, command, config
 import os
 from backend.routes.websocket import router as websocket_router
 from backend.routes import tunnel
+from backend.routes import filemanager
+
+
 
 app = FastAPI()
 
@@ -23,6 +26,7 @@ app.include_router(command.router, prefix="/cmd")
 app.include_router(config.router, prefix="/config")
 app.include_router(websocket_router)
 app.include_router(tunnel.router)
+app.include_router(filemanager.router)
 
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 

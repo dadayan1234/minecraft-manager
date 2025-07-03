@@ -108,7 +108,28 @@ def stop_tunnel():
 
 @router.get("/tunnel/status")
 def get_tunnel_status():
+    global ngrok_status, ngrok_process
+
+    if ngrok_process and ngrok_process.poll() is None:
+        # Proses ngrok masih hidup
+        ngrok_status["running"] = True
+
+        # Coba ambil URL dari API
+        try:
+            r = httpx.get("http://127.0.0.1:4040/api/tunnels")
+            tunnels = r.json().get("tunnels", [])
+            for t in tunnels:
+                if t["proto"] == "tcp":
+                    ngrok_status["url"] = t["public_url"]
+                    break
+        except:
+            pass
+    else:
+        ngrok_status["running"] = False
+        ngrok_status["url"] = None
+
     return ngrok_status
+
 
 
 @router.websocket("/ws/tunnel")
