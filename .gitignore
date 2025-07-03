@@ -1,0 +1,26 @@
+# Virtual environments
+venv/
+.env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Minecraft world/server junk
+*.log
+*.zip
+logs/
+*.lck
+*.pid
+libraries/
+versions/
+worlds/
+saves/
+
+# VS Code settings (opsional)
+.vscode/
