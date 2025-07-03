@@ -1,6 +1,7 @@
 import subprocess
 import threading
 import asyncio
+import time
 from fastapi import APIRouter, WebSocket, Request
 from fastapi.responses import JSONResponse
 import httpx
@@ -43,7 +44,6 @@ async def start_tunnel(request: Request):
 
 def wait_for_ngrok_url_and_broadcast(timeout=15):
     global ngrok_status
-    import time
     for _ in range(timeout):
         try:
             r = httpx.get("http://127.0.0.1:4040/api/tunnels")
@@ -52,13 +52,16 @@ def wait_for_ngrok_url_and_broadcast(timeout=15):
                 if t["proto"] == "tcp":
                     url = t["public_url"]
                     ngrok_status["url"] = url
+                    ngrok_output.append(f"🔗 Tunnel URL: {url}")
+                    ngrok_output.append("✅ Tunnel started successfully.")
                     send_discord_webhook(url)
-                    asyncio.run(broadcast_to_tunnel_clients(f"Tunnel ready: {url}"))
+                    asyncio.run(broadcast_to_tunnel_clients(f"🔗 Tunnel URL: {url}"))
                     return
-        except Exception as e:
+        except Exception:
             pass
         time.sleep(1)
-    asyncio.run(broadcast_to_tunnel_clients("⚠️ Tunnel failed to appear via ngrok API."))
+    ngrok_output.append("❌ Tunnel failed to start.")
+    asyncio.run(broadcast_to_tunnel_clients("❌ Tunnel failed to start."))
 
 
 async def broadcast_to_tunnel_clients(message: str):
@@ -85,11 +88,11 @@ def read_ngrok_output():
                     ngrok_status["url"] = clean_line[start:] if end == -1 else clean_line[start:end]
                     send_discord_webhook(ngrok_status["url"])
                     
-def send_discord_webhook(url):
+def send_discord_webhook(url: str):
     try:
         httpx.post(DISCORD_WEBHOOK_URL, json={"content": f"🔗 Tunnel URL updated: `{url}`"})
     except Exception as e:
-        print("Failed to send webhook:", e)
+        print("Discord webhook failed:", e)
 
 
 @router.post("/tunnel/stop")
@@ -111,12 +114,16 @@ def get_tunnel_status():
 @router.websocket("/ws/tunnel")
 async def tunnel_logs(websocket: WebSocket):
     await websocket.accept()
-    sent_index = 0
+    tunnel_clients.append(websocket)
+
     try:
+        # Kirim seluruh log yang sudah ada
+        for line in ngrok_output:
+            await websocket.send_text(line)
+
+        # Kirim log baru jika ada
         while True:
-            if sent_index < len(ngrok_output):
-                await websocket.send_text(ngrok_output[sent_index])
-                sent_index += 1
             await asyncio.sleep(1)
-    except Exception as e:
-        print("Tunnel WebSocket closed:", e)
+    except Exception:
+        if websocket in tunnel_clients:
+            tunnel_clients.remove(websocket)

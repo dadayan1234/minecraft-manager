@@ -253,12 +253,10 @@ function updateTunnelStatus() {
 function listenTunnelLog() {
   const ws = new WebSocket("wss://mc.nggo.site/ws/tunnel");
   const output = document.getElementById("tunnelOutput");
-  output.textContent = "";
 
   ws.onmessage = function (event) {
     output.textContent += event.data + "\n";
     output.scrollTop = output.scrollHeight;
-    updateTunnelStatus();
   };
 }
 

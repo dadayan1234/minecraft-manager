@@ -1,11 +1,9 @@
-# backend/routes/websocket.py
-
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.routing import APIRouter
 
 router = APIRouter()
 log_clients = []
-tunnel_clients = []  # ← TAMBAHKAN INI
+tunnel_clients = []  # untuk ws/tunnel log
 
 @router.websocket("/ws/log")
 async def websocket_log(websocket: WebSocket):
