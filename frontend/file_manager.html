@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-warning { background: #ffc107; color: black; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .breadcrumb a {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+
+        .upload-zone {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .upload-zone.dragover {
+            border-color: #007bff;
+            background: #f0f8ff;
+        }
+
+        .file-list {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.2s;
+        }
+
+        .file-item:hover {
+            background: #f8f9fa;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-icon {
+            font-size: 20px;
+            margin-right: 12px;
+            width: 24px;
+            text-align: center;
+        }
+
+        .file-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-name {
+            font-weight: 500;
+            margin-bottom: 2px;
+            cursor: pointer;
+            color: #007bff;
+        }
+
+        .file-name:hover {
+            text-decoration: underline;
+        }
+
+        .file-meta {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .file-item:hover .file-actions {
+            opacity: 1;
+        }
+
+        .action-btn {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            background: #f8f9fa;
+            color: #666;
+        }
+
+        .action-btn:hover {
+            background: #e9ecef;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .preview-content {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .search-box {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .file-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            .file-actions {
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📁 File Manager</h1>
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="showCreateFolder()">📁 New Folder</button>
+                <button class="btn btn-success" onclick="triggerFileUpload()">📤 Upload</button>
+                <button class="btn btn-warning" onclick="downloadZip()">📦 Download ZIP</button>
+                <input type="search" class="search-box" placeholder="Search files..." onkeyup="searchFiles(this.value)">
+            </div>
+            <div class="breadcrumb" id="breadcrumb">
+                <a href="#" onclick="navigateTo('')">🏠 Home</a>
+            </div>
+        </div>
+
+        <div class="upload-zone" id="uploadZone" onclick="triggerFileUpload()">
+            <div>📤 Drop files here or click to upload</div>
+            <small>Support multiple files</small>
+        </div>
+
+        <div class="file-list" id="fileList">
+            <div class="empty-state">
+                <div>📂 No files found</div>
+                <small>Upload some files to get started</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden file input -->
+    <input type="file" id="fileInput" multiple style="display: none;">
+
+    <!-- Rename Modal -->
+    <div class="modal" id="renameModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Rename Item</h3>
+                <button class="close" onclick="closeModal('renameModal')">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>New Name:</label>
+                <input type="text" id="renameInput" placeholder="Enter new name">
+            </div>
+            <div style="text-align: right;">
+                <button class="btn btn-primary" onclick="confirmRename()">Rename</button>
+                <button class="btn" onclick="closeModal('renameModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Folder Modal -->
+    <div class="modal" id="createFolderModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Create Folder</h3>
+                <button class="close" onclick="closeModal('createFolderModal')">&times;</button>
+            </div>
+            <div class="form-group">
+                <label>Folder Name:</label>
+                <input type="text" id="folderNameInput" placeholder="Enter folder name">
+            </div>
+            <div style="text-align: right;">
+                <button class="btn btn-primary" onclick="confirmCreateFolder()">Create</button>
+                <button class="btn" onclick="closeModal('createFolderModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="modal" id="previewModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>File Preview</h3>
+                <button class="close" onclick="closeModal('previewModal')">&times;</button>
+            </div>
+            <div class="preview-content" id="previewContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://mc.nggo.site'; // Adjust this to your API endpoint
+        let currentPath = '';
+        let currentFiles = [];
+        let renameTarget = '';
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            setupDragAndDrop();
+            loadFiles();
+        });
+
+        function setupDragAndDrop() {
+            const uploadZone = document.getElementById('uploadZone');
+            
+            uploadZone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                uploadZone.classList.add('dragover');
+            });
+
+            uploadZone.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+            });
+
+            uploadZone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                uploadFiles(files);
+            });
+        }
+
+        function loadFiles(path = '') {
+            currentPath = path;
+            updateBreadcrumb(path);
+            
+            fetch(`${API_BASE}/files?path=${path}`)
+                .then(response => response.json())
+                .then(data => {
+                    currentFiles = data.files || [];
+                    renderFiles(currentFiles);
+                })
+                .catch(error => {
+                    console.error('Error loading files:', error);
+                    showError('Failed to load files');
+                });
+        }
+
+        function renderFiles(files) {
+            const fileList = document.getElementById('fileList');
+            
+            if (files.length === 0) {
+                fileList.innerHTML = `
+                    <div class="empty-state">
+                        <div>📂 No files found</div>
+                        <small>Upload some files to get started</small>
+                    </div>
+                `;
+                return;
+            }
+
+            fileList.innerHTML = files.map(file => `
+                <div class="file-item">
+                    <div class="file-icon">${file.icon}</div>
+                    <div class="file-info">
+                        <div class="file-name" onclick="handleFileClick('${file.name}', '${file.type}')">
+                            ${file.name}
+                        </div>
+                        <div class="file-meta">
+                            ${file.size_formatted} • ${formatDate(file.modified)}
+                        </div>
+                    </div>
+                    <div class="file-actions">
+                        ${file.type === 'file' ? `<button class="action-btn" onclick="previewFile('${file.name}')">👁️</button>` : ''}
+                        ${file.type === 'file' ? `<button class="action-btn" onclick="downloadFile('${file.name}')">⬇️</button>` : ''}
+                        <button class="action-btn" onclick="renameFile('${file.name}')">✏️</button>
+                        <button class="action-btn" onclick="deleteFile('${file.name}')">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateBreadcrumb(path) {
+            const breadcrumb = document.getElementById('breadcrumb');
+            let html = '<a href="#" onclick="navigateTo(\'\')">🏠 Home</a>';
+            
+            if (path) {
+                const parts = path.split('/');
+                let currentPath = '';
+                
+                parts.forEach((part, index) => {
+                    currentPath += (index > 0 ? '/' : '') + part;
+                    html += ` <span>/</span> <a href="#" onclick="navigateTo('${currentPath}')">${part}</a>`;
+                });
+            }
+            
+            breadcrumb.innerHTML = html;
+        }
+
+        function navigateTo(path) {
+            loadFiles(path);
+        }
+
+        function handleFileClick(name, type) {
+            if (type === 'folder') {
+                const newPath = currentPath ? `${currentPath}/${name}` : name;
+                navigateTo(newPath);
+            } else if (type === 'parent') {
+                const parts = currentPath.split('/');
+                parts.pop();
+                navigateTo(parts.join('/'));
+            }
+        }
+
+        function triggerFileUpload() {
+            document.getElementById('fileInput').click();
+        }
+
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            uploadFiles(e.target.files);
+        });
+
+        function uploadFiles(files) {
+            Array.from(files).forEach(file => {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('path', currentPath);
+                
+                fetch(`${API_BASE}/files/upload`, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'uploaded') {
+                        showSuccess(`${file.name} uploaded successfully`);
+                        loadFiles(currentPath);
+                    }
+                })
+                .catch(error => {
+                    console.error('Upload error:', error);
+                    showError(`Failed to upload ${file.name}`);
+                });
+            });
+        }
+
+        function showCreateFolder() {
+            document.getElementById('createFolderModal').style.display = 'block';
+            document.getElementById('folderNameInput').focus();
+        }
+
+        function confirmCreateFolder() {
+            const name = document.getElementById('folderNameInput').value.trim();
+            if (!name) return;
+
+            const formData = new FormData();
+            formData.append('path', currentPath);
+            formData.append('name', name);
+
+            fetch(`${API_BASE}/files/mkdir`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'created') {
+                    showSuccess('Folder created successfully');
+                    loadFiles(currentPath);
+                    closeModal('createFolderModal');
+                }
+            })
+            .catch(error => {
+                console.error('Create folder error:', error);
+                showError('Failed to create folder');
+            });
+        }
+
+        function renameFile(name) {
+            renameTarget = name;
+            document.getElementById('renameInput').value = name;
+            document.getElementById('renameModal').style.display = 'block';
+            document.getElementById('renameInput').focus();
+        }
+
+        function confirmRename() {
+            const newName = document.getElementById('renameInput').value.trim();
+            if (!newName) return;
+
+            const formData = new FormData();
+            const oldPath = currentPath ? `${currentPath}/${renameTarget}` : renameTarget;
+            formData.append('old_path', oldPath);
+            formData.append('new_name', newName);
+
+            fetch(`${API_BASE}/files/rename`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'renamed') {
+                    showSuccess('Item renamed successfully');
+                    loadFiles(currentPath);
+                    closeModal('renameModal');
+                }
+            })
+            .catch(error => {
+                console.error('Rename error:', error);
+                showError('Failed to rename item');
+            });
+        }
+
+        function deleteFile(name) {
+            if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+
+            const formData = new FormData();
+            const path = currentPath ? `${currentPath}/${name}` : name;
+            formData.append('path', path);
+
+            fetch(`${API_BASE}/files/delete`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'deleted') {
+                    showSuccess('Item deleted successfully');
+                    loadFiles(currentPath);
+                }
+            })
+            .catch(error => {
+                console.error('Delete error:', error);
+                showError('Failed to delete item');
+            });
+        }
+
+        function previewFile(name) {
+            const path = currentPath ? `${currentPath}/${name}` : name;
+            
+            fetch(`${API_BASE}/files/preview?path=${path}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.content) {
+                        document.getElementById('previewContent').textContent = data.content;
+                        document.getElementById('previewModal').style.display = 'block';
+                    } else {
+                        showError(data.error || 'Cannot preview this file');
+                    }
+                })
+                .catch(error => {
+                    console.error('Preview error:', error);
+                    showError('Failed to preview file');
+                });
+        }
+
+        function downloadFile(name) {
+            const path = currentPath ? `${currentPath}/${name}` : name;
+            window.open(`${API_BASE}/files/download?path=${path}`, '_blank');
+        }
+
+        function downloadZip() {
+            const path = currentPath;
+            window.open(`${API_BASE}/files/zip?path=${path}`, '_blank');
+        }
+
+        function searchFiles(query) {
+            if (!query) {
+                renderFiles(currentFiles);
+                return;
+            }
+
+            const filteredFiles = currentFiles.filter(file => 
+                file.name.toLowerCase().includes(query.toLowerCase())
+            );
+            renderFiles(filteredFiles);
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        function showSuccess(message) {
+            // Simple success notification
+            const div = document.createElement('div');
+            div.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #28a745;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 4px;
+                z-index: 1001;
+            `;
+            div.textContent = message;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 3000);
+        }
+
+        function showError(message) {
+            // Simple error notification
+            const div = document.createElement('div');
+            div.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #dc3545;
+                color: white;
+                padding: 10px 20px;
+                border-radius: 4px;
+                z-index: 1001;
+            `;
+            div.textContent = message;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 3000);
+        }
+
+        // Close modals when clicking outside
+        window.addEventListener('click', function(e) {
+            if (e.target.classList.contains('modal')) {
+                e.target.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
