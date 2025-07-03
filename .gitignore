@@ -12,12 +12,15 @@ __pycache__/
 Thumbs.db
 
 # Minecraft world/server junk
-*.jar
 *.log
 *.zip
 logs/
 *.lck
 *.pid
+libraries/
+versions/
+worlds/
+saves/
 
 # VS Code settings (opsional)
 .vscode/
