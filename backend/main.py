@@ -32,4 +32,8 @@ app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/")
 async def read_index():
-    return FileResponse("frontend/index.html")
+    return FileResponse("frontend/index_enh.html")
+
+@app.get("/filemanager")
+async def file_manager():
+    return FileResponse("frontend/file_manager.html")
