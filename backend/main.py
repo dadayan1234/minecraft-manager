@@ -7,6 +7,7 @@ from backend import auth, models
 from datetime import timedelta
 from backend.routes import webhooks
 from backend.routes import versions
+from backend.routes import manage_servers
 
 # Inisialisasi database saat aplikasi dimulai
 initialize_database()
@@ -105,6 +106,12 @@ app.include_router(
     dependencies=[Depends(auth.get_current_user)],
     tags=["tunnel"]
 )
+app.include_router(
+    manage_servers.router, 
+    dependencies=[Depends(auth.get_current_user)],
+    tags=["manage_servers"]
+    )
+
 
 # Websocket tidak bisa menggunakan dependency di router, otentikasi harus ditangani di dalam endpoint
 app.include_router(websocket.router)

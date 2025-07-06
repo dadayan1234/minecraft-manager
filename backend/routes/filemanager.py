@@ -4,14 +4,16 @@ import mimetypes
 import zipfile
 import io
 from datetime import datetime
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Path
+from typing import Annotated
+
 from fastapi.responses import FileResponse, StreamingResponse
-from backend import auth, models  # Pastikan file auth.py dan models.py sudah ada
+from backend import auth, models
+from backend.dependencies import get_server_details # <-- PERBAIKAN: Impor dari file baru
 
 router = APIRouter()
 
 # --- FUNGSI HELPER ---
-
 def get_user_base_dir(current_user: models.User = Depends(auth.get_current_user)):
     """
     Mendapatkan dan membuat direktori basis untuk pengguna yang sedang login.
@@ -23,25 +25,11 @@ def get_user_base_dir(current_user: models.User = Depends(auth.get_current_user)
     os.makedirs(user_dir, exist_ok=True)
     return user_dir
 
-def secure_path(base_dir: str, relative_path: str):
-    """
-    Memvalidasi dan mengamankan path agar tetap berada di dalam direktori basis pengguna.
-    Sangat penting untuk mencegah akses ke file di luar direktori yang diizinkan (Path Traversal).
-    """
-    if not relative_path:
-        relative_path = ""
-    
-    # Menormalkan path untuk konsistensi antar sistem operasi
-    full_path = os.path.normpath(os.path.join(base_dir, relative_path))
-    
-    # Memastikan path yang dihasilkan benar-benar berada di dalam base_dir
-    if not os.path.abspath(full_path).startswith(os.path.abspath(base_dir)):
-        raise HTTPException(status_code=403, detail="Akses ke path terlarang")
-        
-    return full_path
+def get_server_path(server_details: dict = Depends(get_server_details)) -> str:
+    """Dependency sederhana untuk mengekstrak 'path' dari detail server yang sudah divalidasi."""
+    return server_details['path']
 
 def format_file_size(size_bytes):
-    """Format ukuran file agar mudah dibaca (B, KB, MB, GB)."""
     if size_bytes == 0: return "0 B"
     names = ("B", "KB", "MB", "GB")
     i = 0
@@ -51,23 +39,29 @@ def format_file_size(size_bytes):
     return f"{round(size_bytes, 1)} {names[i]}"
 
 def get_file_icon(filename, is_dir=False):
-    """Memberikan ikon emoji berdasarkan tipe file."""
     if is_dir: return "📁"
     ext = os.path.splitext(filename)[1].lower()
-    icon_map = {
-        '.jar': '☕', '.zip': '📦', '.rar': '📦', '.txt': '📄', '.log': '📜', '.json': '⚙️', 
-        '.yml': '⚙️', '.properties': '⚙️', '.png': '🖼️', '.jpg': '🖼️', '.md': '📝', '.sh': '🖥️'
-    }
+    icon_map = {'.jar': '☕', '.zip': '📦', '.txt': '📄', '.log': '📜'}
     return icon_map.get(ext, '📄')
 
+def secure_path(base_dir: str, relative_path: str):
+    """Memvalidasi path agar tetap berada di dalam direktori basis server."""
+    if not relative_path: relative_path = ""
+    full_path = os.path.normpath(os.path.join(base_dir, relative_path))
+    if not os.path.abspath(full_path).startswith(os.path.abspath(base_dir)):
+        raise HTTPException(status_code=403, detail="Akses ke path terlarang")
+    return full_path
 
 # --- ENDPOINT API ---
 
-@router.get("/files", summary="Melihat daftar file dan folder pengguna")
-def list_files_for_user(path: str = "", base_dir: str = Depends(get_user_base_dir)):
-    abs_path = secure_path(base_dir, path)
-    if not os.path.exists(abs_path) or not os.path.isdir(abs_path):
-        raise HTTPException(status_code=404, detail="Path tidak ditemukan")
+@router.get("/files/{server_id}", summary="Melihat daftar file di server spesifik")
+def list_files_in_server(
+    server_path: str = Depends(get_server_path),
+    path: str = ""
+):
+    abs_path = secure_path(server_path, path)
+    if not os.path.isdir(abs_path):
+        raise HTTPException(status_code=404, detail="Path tidak ditemukan atau bukan direktori.")
     
     items = []
     for item_name in sorted(os.listdir(abs_path)):
@@ -75,79 +69,64 @@ def list_files_for_user(path: str = "", base_dir: str = Depends(get_user_base_di
         is_dir = os.path.isdir(item_path)
         stat = os.stat(item_path)
         items.append({
-            "name": item_name,
-            "type": "folder" if is_dir else "file",
+            "name": item_name, "type": "folder" if is_dir else "file",
             "path": os.path.join(path, item_name).replace("\\", "/"),
-            "icon": get_file_icon(item_name, is_dir),
-            "size": stat.st_size,
+            "icon": get_file_icon(item_name, is_dir), "size": stat.st_size,
             "size_formatted": format_file_size(stat.st_size) if not is_dir else "",
             "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
         })
-        
-    folders = [item for item in items if item["type"] == "folder"]
-    files = [item for item in items if item["type"] == "file"]
-    
+    folders = [i for i in items if i['type'] == 'folder']
+    files = [i for i in items if i['type'] == 'file']
     return {"current_path": path, "files": folders + files}
 
-@router.post("/files/upload", summary="Mengunggah file ke direktori pengguna")
-async def upload_file_for_user(
-    path: str = Form(""), file: UploadFile = File(...), base_dir: str = Depends(get_user_base_dir)
+@router.post("/files/{server_id}/upload", summary="Mengunggah file ke server spesifik")
+async def upload_file_to_server(
+    server_path: str = Depends(get_server_path),
+    file: UploadFile = File(...),
+    path: str = Form("")
 ):
-    upload_dir = secure_path(base_dir, path)
+    upload_dir = secure_path(server_path, path)
     if not os.path.isdir(upload_dir):
-         raise HTTPException(status_code=400, detail="Path tujuan harus berupa direktori")
-
-    if not isinstance(file.filename, str) or not file.filename:
-        raise HTTPException(status_code=400, detail="Nama file tidak valid")
-    file_path = os.path.join(upload_dir, file.filename)
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+        raise HTTPException(status_code=400, detail="Path tujuan bukan direktori.")
     
-    return {"status": "uploaded", "filename": file.filename, "path": path}
+    file_location = os.path.join(upload_dir, file.filename)
+    with open(file_location, "wb+") as file_object:
+        shutil.copyfileobj(file.file, file_object)
+    return {"info": f"File '{file.filename}' diunggah ke '{file_location}'"}
 
-@router.post("/files/mkdir", summary="Membuat folder baru")
-def create_directory_for_user(
-    path: str = Form(...), name: str = Form(...), base_dir: str = Depends(get_user_base_dir)
+@router.post("/files/{server_id}/delete", summary="Menghapus file/folder di server spesifik")
+def delete_item_in_server(
+    server_path: str = Depends(get_server_path),
+    path: str = Form(...)
 ):
-    parent_path = secure_path(base_dir, path)
-    new_dir_path = os.path.join(parent_path, name)
-    
-    if os.path.exists(new_dir_path):
-        raise HTTPException(status_code=400, detail="Direktori sudah ada")
-    
-    os.makedirs(new_dir_path)
-    return {"status": "created", "path": os.path.join(path, name)}
-
-@router.post("/files/delete", summary="Menghapus file atau folder")
-def delete_item_for_user(path: str = Form(...), base_dir: str = Depends(get_user_base_dir)):
-    abs_path = secure_path(base_dir, path)
-    if not os.path.exists(abs_path) or abs_path == os.path.abspath(base_dir):
-        raise HTTPException(status_code=404, detail="Item tidak ditemukan atau Anda tidak bisa menghapus root")
+    abs_path = secure_path(server_path, path)
+    if not os.path.exists(abs_path) or abs_path == os.path.abspath(server_path):
+        raise HTTPException(status_code=404, detail="Item tidak ditemukan atau Anda tidak dapat menghapus root.")
     
     if os.path.isdir(abs_path):
         shutil.rmtree(abs_path)
     else:
         os.remove(abs_path)
-        
     return {"status": "deleted", "path": path}
 
-@router.post("/files/rename", summary="Mengganti nama file atau folder")
-def rename_item_for_user(
-    old_path: str = Form(...), new_name: str = Form(...), base_dir: str = Depends(get_user_base_dir)
+@router.post("/files/{server_id}/rename", summary="Mengganti nama file/folder di server spesifik")
+def rename_item_in_server(
+    server_path: str = Depends(get_server_path),
+    old_path: str = Form(...),
+    new_name: str = Form(...)
 ):
-    abs_old_path = secure_path(base_dir, old_path)
+    abs_old_path = secure_path(server_path, old_path)
     if not os.path.exists(abs_old_path):
-        raise HTTPException(status_code=404, detail="Path lama tidak ditemukan")
-        
+        raise HTTPException(status_code=404, detail="Path lama tidak ditemukan.")
+    
     parent_dir = os.path.dirname(abs_old_path)
     abs_new_path = os.path.join(parent_dir, new_name)
     
     if os.path.exists(abs_new_path):
-        raise HTTPException(status_code=400, detail="Nama baru sudah ada di lokasi ini")
-
+        raise HTTPException(status_code=400, detail="Nama baru sudah ada.")
+        
     os.rename(abs_old_path, abs_new_path)
-    new_relative_path = os.path.relpath(abs_new_path, base_dir).replace("\\", "/")
-    return {"status": "renamed", "new_path": new_relative_path}
+    return {"status": "renamed", "new_name": new_name}
 
 @router.post("/files/copy", summary="Menyalin file atau folder")
 def copy_item_for_user(
