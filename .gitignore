@@ -21,6 +21,8 @@ libraries/
 versions/
 worlds/
 saves/
+servers/
+server/
 
 # VS Code settings (opsional)
 .vscode/
