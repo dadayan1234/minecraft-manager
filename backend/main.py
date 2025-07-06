@@ -102,10 +102,14 @@ app.include_router(
 )
 app.include_router(
     tunnel.router,
-    prefix="/tunnel",
     dependencies=[Depends(auth.get_current_user)],
     tags=["tunnel"]
 )
 
 # Websocket tidak bisa menggunakan dependency di router, otentikasi harus ditangani di dalam endpoint
 app.include_router(websocket.router)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="localhost", port=8000, reload=True, log_level="info")
+    # Gunakan `reload=True` untuk pengembangan, matikan di produksi

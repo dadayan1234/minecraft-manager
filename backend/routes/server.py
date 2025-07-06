@@ -74,14 +74,10 @@ async def start_server_for_user(
     current_user: models.User = Depends(auth.get_current_user),
     server_path: str = Depends(get_user_server_path)
 ):
-    """
-    Memulai server sesuai versi yang dipilih pengguna.
-    """
     username = current_user.username
     if user_processes.get(username) and user_processes[username].poll() is None:
         raise HTTPException(status_code=400, detail="Server untuk pengguna ini sudah berjalan.")
 
-    # Ambil versi yang dipilih pengguna dari database
     conn = create_connection()
     if conn is None:
         raise HTTPException(status_code=500, detail="Gagal terhubung ke database.")
@@ -92,24 +88,31 @@ async def start_server_for_user(
     
     selected_version = user_data['server_version'] if user_data and user_data['server_version'] else None
     if not selected_version:
-        raise HTTPException(status_code=400, detail="Anda belum memilih versi server. Silakan pilih versi terlebih dahulu.")
+        raise HTTPException(status_code=400, detail="Anda belum memilih versi server.")
     
-    # Download jar jika perlu dan dapatkan nama file-nya
-    jar_to_run = await download_server_jar(selected_version, server_path)
-
-    # Menulis eula.txt secara otomatis jika belum ada
+    # === PERBAIKAN UTAMA ADA DI SINI ===
+    # 1. Pastikan EULA disetujui SEBELUM server dijalankan.
     eula_path = os.path.join(server_path, "eula.txt")
     if not os.path.exists(eula_path):
-        with open(eula_path, "w") as f:
-            f.write("eula=true\n")
+        try:
+            with open(eula_path, "w") as f:
+                f.write("eula=true\n")
+            print(f"File eula.txt dibuat untuk pengguna: {username}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Gagal membuat file eula.txt: {e}")
+    # ====================================
+
+    # 2. Download jar jika perlu
+    jar_to_run = await download_server_jar(selected_version, server_path)
 
     try:
-        # Jalankan server dengan jar yang sesuai
+        # 3. Jalankan server
         process = subprocess.Popen(
-            ["java", "-Xmx1024M", "-Xms1024M", "-jar", jar_to_run, "nogui"], # <-- KUNCI PERUBAHAN
+            ["java", "-Xmx1024M", "-Xms1024M", "-jar", jar_to_run, "nogui"],
             cwd=server_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            stdin=subprocess.PIPE, # Diperlukan untuk mengirim command
             text=True,
             encoding='utf-8',
             errors='replace'
