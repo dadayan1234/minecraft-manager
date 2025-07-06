@@ -1,150 +1,144 @@
 import subprocess
 import threading
-import asyncio
 import time
-from fastapi import APIRouter, WebSocket, Request
-from fastapi.responses import JSONResponse
+import os
 import httpx
-from backend.routes.websocket import tunnel_clients  # ← kita gunakan array global tunnel_clients
-
-
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1390165991081771018/AZmWeABt8m3g7zwKIcGEltW_Z1HlZlsdEw1IIFYxy1xPCQSVDFrss2IQl05aIqWy01Xr"  # ← ganti dengan milikmu
-
+from fastapi import APIRouter, Depends, HTTPException, Body
+from typing import Annotated
+from backend import auth, models
+from backend.database import create_connection
 
 router = APIRouter()
 
-ngrok_process = None
-ngrok_output = []
-ngrok_status = {"running": False, "url": None}
+# Dictionary untuk mengelola proses dan status tunnel untuk setiap pengguna
+# Key: username, Value: {"process": Popen, "status": dict}
+user_tunnels = {}
 
+def send_notifications_to_user_webhooks(username: str, url: str):
+    """
+    Mengambil semua URL webhook milik pengguna dari database dan mengirim notifikasi.
+    """
+    conn = create_connection()
+    if conn is None:
+        print("Gagal membuat koneksi ke database.")
+        return
+    cursor = conn.cursor()
+    
+    try:
+        # Dapatkan semua URL webhook untuk pengguna ini
+        cursor.execute("""
+            SELECT wh.webhook_url 
+            FROM user_webhooks wh
+            JOIN users u ON wh.user_id = u.id
+            WHERE u.username = ?
+        """, (username,))
+        
+        webhook_urls = [row['webhook_url'] for row in cursor.fetchall()]
+    finally:
+        conn.close()
 
-@router.post("/tunnel/start")
-async def start_tunnel(request: Request):
-    global ngrok_process, ngrok_output, ngrok_status
-    data = await request.json()
-    port = str(data.get("port", 25565))
+    content = f"🎉 Tunnel untuk pengguna **{username}** aktif!\n🔗 Alamat Server: `{url}`"
+    
+    for webhook_url in webhook_urls:
+        try:
+            # Mengirim notifikasi secara non-blocking
+            with httpx.Client() as client:
+                client.post(webhook_url, json={"content": content}, timeout=5)
+        except Exception as e:
+            print(f"Gagal mengirim webhook ke {webhook_url}: {e}")
 
-    if ngrok_process and ngrok_process.poll() is None:
-        return JSONResponse(content={"status": "already running", "url": ngrok_status["url"]})
-
-    ngrok_output.clear()
-    ngrok_status = {"running": True, "url": None}
-
-    # Jalankan ngrok (tanpa baca outputnya langsung)
-    ngrok_process = subprocess.Popen(
-        ["ngrok", "tcp", port],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-
-    # Tunggu URL muncul dari web API
-    threading.Thread(target=wait_for_ngrok_url_and_broadcast, daemon=True).start()
-
-    return {"status": "starting"}
-
-def wait_for_ngrok_url_and_broadcast(timeout=15):
-    global ngrok_status
+def wait_for_ngrok_url(username: str, timeout=20):
+    """
+    Worker yang berjalan di thread terpisah untuk menunggu URL ngrok muncul dari API lokal.
+    """
+    time.sleep(2) # Beri waktu agar proses Ngrok dan API-nya sempat berjalan
     for _ in range(timeout):
         try:
-            r = httpx.get("http://127.0.0.1:4040/api/tunnels")
-            tunnels = r.json().get("tunnels", [])
-            for t in tunnels:
-                if t["proto"] == "tcp":
+            # Ngrok API berjalan di port 4040 secara default
+            r = httpx.get("http://127.0.0.1:4040/api/tunnels", timeout=2)
+            r.raise_for_status() # Akan error jika status code bukan 2xx
+            tunnels_data = r.json().get("tunnels", [])
+            
+            for t in tunnels_data:
+                if t.get("proto") == "tcp" and t.get("public_url"):
                     url = t["public_url"]
-                    ngrok_status["url"] = url
-                    ngrok_output.append(f"🔗 Tunnel URL: {url}")
-                    ngrok_output.append("✅ Tunnel started successfully.")
-                    send_discord_webhook(url)
-                    asyncio.run(broadcast_to_tunnel_clients(f"🔗 Tunnel URL: {url}"))
-                    return
-        except Exception:
-            pass
-        time.sleep(1)
-    ngrok_output.append("❌ Tunnel failed to start.")
-    asyncio.run(broadcast_to_tunnel_clients("❌ Tunnel failed to start."))
+                    if username in user_tunnels:
+                        user_tunnels[username]["status"] = {"running": True, "url": url}
+                        # Jalankan pengiriman notifikasi di thread baru agar tidak memblokir
+                        threading.Thread(target=send_notifications_to_user_webhooks, args=(username, url)).start()
+                        return
+        except httpx.RequestError:
+            # API Ngrok mungkin belum siap, coba lagi
+            time.sleep(1)
+        except Exception as e:
+            print(f"Error saat mengambil URL Ngrok untuk {username}: {e}")
+            break # Hentikan percobaan jika ada error lain
+            
+    # Jika loop selesai tanpa menemukan URL
+    if username in user_tunnels:
+        user_tunnels[username]["status"] = {"running": False, "url": None, "error": "Gagal mendapatkan URL dari Ngrok API."}
 
+@router.post("/tunnel/start", summary="Memulai Ngrok tunnel untuk pengguna")
+def start_tunnel_for_user(
+    port_data: Annotated[dict, Body(embed=True, example={"port": 25565})],
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    username = current_user.username
+    port = port_data.get("port", 25565)
+    
+    if username in user_tunnels and user_tunnels[username].get("process") and user_tunnels[username]["process"].poll() is None:
+        raise HTTPException(status_code=400, detail="Tunnel untuk pengguna ini sudah berjalan.")
 
-async def broadcast_to_tunnel_clients(message: str):
-    for client in tunnel_clients.copy():
-        try:
-            await client.send_text(message)
-        except:
-            tunnel_clients.remove(client)
-
-def read_ngrok_output():
-    global ngrok_process, ngrok_output, ngrok_status
-    if ngrok_process and ngrok_process.stdout:
-        for line in ngrok_process.stdout:
-            clean_line = line.strip()
-            ngrok_output.append(clean_line)
-
-            # Broadcast ke semua WebSocket tunnel clients
-            asyncio.run(broadcast_to_tunnel_clients(clean_line))
-
-            if "tcp://" in clean_line and not ngrok_status["url"]:
-                start = clean_line.find("tcp://")
-                end = clean_line.find(" ", start)
-                if start != -1:
-                    ngrok_status["url"] = clean_line[start:] if end == -1 else clean_line[start:end]
-                    send_discord_webhook(ngrok_status["url"])
-                    
-def send_discord_webhook(url: str):
     try:
-        httpx.post(DISCORD_WEBHOOK_URL, json={"content": f"🔗 Tunnel URL updated: `{url}`"})
+        # Jalankan proses Ngrok. Pastikan 'ngrok' ada di PATH sistem Anda.
+        process = subprocess.Popen(
+            ["ngrok", "tcp", str(port)],
+            stdout=subprocess.DEVNULL, # Sembunyikan output standar
+            stderr=subprocess.DEVNULL  # Sembunyikan output error
+        )
+        
+        user_tunnels[username] = {
+            "process": process,
+            "status": {"running": True, "url": None, "error": None}
+        }
+
+        # Jalankan thread untuk memonitor URL tanpa memblokir response API
+        threading.Thread(target=wait_for_ngrok_url, args=(username,)).start()
+
+        return {"status": "starting", "detail": "Ngrok tunnel sedang dimulai..."}
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Perintah 'ngrok' tidak ditemukan. Pastikan Ngrok terinstall dan ada di PATH sistem Anda.")
     except Exception as e:
-        print("Discord webhook failed:", e)
+        raise HTTPException(status_code=500, detail=f"Gagal memulai Ngrok: {e}")
 
+@router.post("/tunnel/stop", summary="Menghentikan Ngrok tunnel milik pengguna")
+def stop_tunnel_for_user(current_user: models.User = Depends(auth.get_current_user)):
+    username = current_user.username
+    tunnel_info = user_tunnels.get(username)
 
-@router.post("/tunnel/stop")
-def stop_tunnel():
-    global ngrok_process, ngrok_status
-    if ngrok_process and ngrok_process.poll() is None:
-        ngrok_process.terminate()
-        ngrok_process = None
-        ngrok_status = {"running": False, "url": None}
-        return {"status": "stopped"}
-    return {"status": "not running"}
-
-
-@router.get("/tunnel/status")
-def get_tunnel_status():
-    global ngrok_status, ngrok_process
-
-    if ngrok_process and ngrok_process.poll() is None:
-        # Proses ngrok masih hidup
-        ngrok_status["running"] = True
-
-        # Coba ambil URL dari API
+    if tunnel_info and tunnel_info.get("process") and tunnel_info["process"].poll() is None:
+        tunnel_info["process"].terminate()
         try:
-            r = httpx.get("http://127.0.0.1:4040/api/tunnels")
-            tunnels = r.json().get("tunnels", [])
-            for t in tunnels:
-                if t["proto"] == "tcp":
-                    ngrok_status["url"] = t["public_url"]
-                    break
-        except:
-            pass
-    else:
-        ngrok_status["running"] = False
-        ngrok_status["url"] = None
+            # Tunggu sebentar agar proses benar-benar berhenti
+            tunnel_info["process"].wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            tunnel_info["process"].kill() # Paksa berhenti jika terminate gagal
+        
+        user_tunnels.pop(username, None)
+        return {"status": "stopped"}
+        
+    raise HTTPException(status_code=404, detail="Tunnel untuk pengguna ini tidak sedang berjalan.")
 
-    return ngrok_status
+@router.get("/tunnel/status", summary="Melihat status tunnel milik pengguna")
+def get_tunnel_status_for_user(current_user: models.User = Depends(auth.get_current_user)):
+    username = current_user.username
+    tunnel_info = user_tunnels.get(username)
 
-
-
-@router.websocket("/ws/tunnel")
-async def tunnel_logs(websocket: WebSocket):
-    await websocket.accept()
-    tunnel_clients.append(websocket)
-
-    try:
-        # Kirim seluruh log yang sudah ada
-        for line in ngrok_output:
-            await websocket.send_text(line)
-
-        # Kirim log baru jika ada
-        while True:
-            await asyncio.sleep(1)
-    except Exception:
-        if websocket in tunnel_clients:
-            tunnel_clients.remove(websocket)
+    if not tunnel_info or not tunnel_info.get("process") or tunnel_info["process"].poll() is not None:
+        # Jika proses tidak ada atau sudah berhenti, pastikan data lama dibersihkan
+        if username in user_tunnels:
+            user_tunnels.pop(username, None)
+        return {"running": False, "url": None}
+    
+    # Kembalikan status terakhir yang disimpan oleh thread worker
+    return user_tunnels[username].get("status", {"running": True, "url": None})
