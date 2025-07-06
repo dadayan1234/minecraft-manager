@@ -1,38 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from backend import auth, models
-# Impor dictionary proses dari server.py untuk mengakses proses yang sedang berjalan
-from .server import user_processes 
+from backend import models
+from backend.dependencies import get_server_details
+from backend.shared_state import server_processes # <-- PERBAIKAN: Impor dari file 'shared_state.py' yang netral
 
 router = APIRouter()
 
-class Command(BaseModel):
-    command: str
-
-@router.post("/", summary="Mengirim perintah ke konsol server milik pengguna")
-def send_command_to_user_server(
-    cmd: Command,
-    current_user: models.User = Depends(auth.get_current_user)
+@router.post("/servers/{server_id}/command", summary="Mengirim perintah ke server spesifik")
+def send_command(
+    command_data: models.Command,
+    server_details: dict = Depends(get_server_details)
 ):
     """
-    Mengirimkan string perintah ke stdin dari proses server pengguna yang sedang berjalan.
+    Mengirimkan string perintah ke stdin dari proses server yang sedang berjalan,
+    berdasarkan server_id yang diberikan.
     """
-    username = current_user.username
-    process = user_processes.get(username)
+    server_id = server_details['id']
+    process = server_processes.get(server_id)
 
-    # Cek apakah server milik pengguna ini sedang berjalan
+    # Cek apakah proses untuk server ini ada dan sedang berjalan
     if not process or process.poll() is not None:
-        raise HTTPException(status_code=404, detail="Server untuk pengguna ini tidak sedang berjalan.")
-    
-    try:
-        # Menulis perintah ke Standard Input dari proses server
-        # Tambahkan newline agar perintah dieksekusi
-        process.stdin.write(cmd.command + '\n')
-        process.stdin.flush() # Pastikan perintah langsung dikirim
+        raise HTTPException(status_code=404, detail="Server tidak berjalan atau tidak ditemukan.")
         
-        # Catatan: Mendapatkan output langsung dari command di sini rumit.
-        # Output akan muncul di stream log WebSocket.
-        return {"status": "command_sent", "command": cmd.command}
+    try:
+        # Menulis perintah ke proses server yang benar
+        process.stdin.write(command_data.command + '\n')
+        process.stdin.flush()
+        return {"status": "command_sent", "server_id": server_id, "command": command_data.command}
     except Exception as e:
-        # Menangani error jika pipe rusak (misal, server crash)
+        # Menangani error jika terjadi masalah saat menulis ke proses
         raise HTTPException(status_code=500, detail=f"Gagal mengirim perintah: {str(e)}")

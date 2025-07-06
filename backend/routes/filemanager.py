@@ -4,8 +4,8 @@ import mimetypes
 import zipfile
 import io
 from datetime import datetime
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Path
-from typing import Annotated
+from fastapi import APIRouter, Body, Depends, UploadFile, File, Form, HTTPException, Path
+from typing import Annotated, List
 
 from fastapi.responses import FileResponse, StreamingResponse
 from backend import auth, models
@@ -242,4 +242,32 @@ def download_zip_for_user(path: str = "", base_dir: str = Depends(get_user_base_
         zip_io,
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={zip_name}.zip"}
+    )
+    
+@router.post("/files/{server_id}/zip-selection", summary="Membuat file ZIP dari file-file yang dipilih")
+def download_selected_as_zip(
+    server_path: str = Depends(get_server_path),
+    files: List[str] = Body(..., embed=True)
+):
+    """
+    Menerima daftar path file relatif, memvalidasinya, dan menggabungkannya ke dalam satu file ZIP.
+    """
+    zip_io = io.BytesIO()
+    
+    with zipfile.ZipFile(zip_io, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for relative_path in files:
+            # Validasi setiap path untuk keamanan
+            abs_path = secure_path(server_path, relative_path)
+            
+            if not os.path.exists(abs_path):
+                continue # Lewati file yang tidak ada
+
+            # Path di dalam zip dibuat sama dengan path relatifnya
+            zf.write(abs_path, relative_path)
+
+    zip_io.seek(0)
+    return StreamingResponse(
+        zip_io,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=selection.zip"}
     )

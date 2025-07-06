@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
-from backend.routes import filemanager, server, command, config, tunnel, websocket
+from backend.routes import filemanager, server, command, config, tunnel, upload, websocket
 from backend.database import initialize_database, create_connection
 from backend import auth, models
 from datetime import timedelta
@@ -85,7 +85,6 @@ app.include_router(
 )
 app.include_router(
     server.router,
-    prefix="/server",
     dependencies=[Depends(auth.get_current_user)],
     tags=["server"]
 )
@@ -97,7 +96,6 @@ app.include_router(
 )
 app.include_router(
     config.router,
-    prefix="/config",
     dependencies=[Depends(auth.get_current_user)],
     tags=["config"]
 )
@@ -113,8 +111,18 @@ app.include_router(
     )
 
 
-# Websocket tidak bisa menggunakan dependency di router, otentikasi harus ditangani di dalam endpoint
-app.include_router(websocket.router)
+# Daftarkan router upload tanpa prefix
+app.include_router(
+    upload.router,
+    tags=["Plugin Upload"],
+    dependencies=[Depends(auth.get_current_user)]
+)
+
+# WebSocket tidak bisa menggunakan dependency di router
+app.include_router(
+    websocket.router,
+    tags=["WebSockets"]
+)
 
 if __name__ == "__main__":
     import uvicorn
