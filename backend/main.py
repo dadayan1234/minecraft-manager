@@ -15,7 +15,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://mc.nggo.site", "https://mc.nggo.site"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -67,13 +67,45 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 
 # Melindungi router yang ada dengan otentikasi
 # Perhatikan penambahan `dependencies=[Depends(auth.get_current_user)]`
-app.include_router(versions.router, dependencies=[Depends(auth.get_current_user)])
-app.include_router(webhooks.router, dependencies=[Depends(auth.get_current_user)])
-app.include_router(filemanager.router, prefix="/files", dependencies=[Depends(auth.get_current_user)])
-app.include_router(server.router, prefix="/server", dependencies=[Depends(auth.get_current_user)])
-app.include_router(command.router, prefix="/cmd", dependencies=[Depends(auth.get_current_user)])
-app.include_router(config.router, prefix="/config", dependencies=[Depends(auth.get_current_user)])
-app.include_router(tunnel.router, prefix="/tunnel", dependencies=[Depends(auth.get_current_user)])
+app.include_router(
+    versions.router,
+    dependencies=[Depends(auth.get_current_user)],
+    tags=["versions"]
+)
+app.include_router(
+    webhooks.router,
+    dependencies=[Depends(auth.get_current_user)],
+    tags=["webhooks"]
+)
+app.include_router(
+    filemanager.router,
+    dependencies=[Depends(auth.get_current_user)],
+    tags=["filemanager"]
+)
+app.include_router(
+    server.router,
+    prefix="/server",
+    dependencies=[Depends(auth.get_current_user)],
+    tags=["server"]
+)
+app.include_router(
+    command.router,
+    prefix="/cmd",
+    dependencies=[Depends(auth.get_current_user)],
+    tags=["command"]
+)
+app.include_router(
+    config.router,
+    prefix="/config",
+    dependencies=[Depends(auth.get_current_user)],
+    tags=["config"]
+)
+app.include_router(
+    tunnel.router,
+    prefix="/tunnel",
+    dependencies=[Depends(auth.get_current_user)],
+    tags=["tunnel"]
+)
 
 # Websocket tidak bisa menggunakan dependency di router, otentikasi harus ditangani di dalam endpoint
 app.include_router(websocket.router)
