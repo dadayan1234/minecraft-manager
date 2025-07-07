@@ -8,11 +8,13 @@ from datetime import timedelta
 from backend.routes import webhooks
 from backend.routes import versions
 from backend.routes import manage_servers
+from backend.server_watcher import start_watcher
 
 # Inisialisasi database saat aplikasi dimulai
 initialize_database()
+start_watcher()
 
-app = FastAPI()
+app = FastAPI(title="Minecraft Manager API")
 
 app.add_middleware(
     CORSMiddleware,
